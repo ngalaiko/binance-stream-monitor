@@ -15,13 +15,14 @@
 ```
 $ cd src && \
     go run ./cmd/monitor/main.go \
-        --alert-on "BTCUSDT>51000"
+        --alert-on "BTCUSDT>51000" \
+        --alert-on "ADABTC>0"
 ```
 
 2. Docker
-
 ```
 $ docker build . -t monitor
 $ docker run -it monitor \
-    --alert-on "BTCUSDT>51000"
+    --alert-on "BTCUSDT>51000" \
+    --alert-on "ADABTC>0"
 ```
