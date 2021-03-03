@@ -4,15 +4,24 @@
 
 1. Command line arguments
 
-| Command line            | Default                  | Description                    |
-| ----------------------- | ------------------------ | ------------------------------ |
-| verbose                 | false                    | Enable verbose logging         |
-| alert                   | []                       | Enable verbose logging         |
+| Command line            | Default                  | Description                                             |
+| ----------------------- | ------------------------ | ------------------------------------------------------- |
+| verbose                 | false                    | Enable verbose logging                                  |
+| alert-on                | []                       | Symbol and price to alert on, for example BTCUSDT>51000 |
 
 ## Running
 
 1. Locally
 ```
-$ cd backend && \
-    go run ./cmd/monitor/main.go
+$ cd src && \
+    go run ./cmd/monitor/main.go \
+        --alert-on "BTCUSDT>51000"
+```
+
+2. Docker
+
+```
+$ docker build . -t monitor
+$ docker run -it monitor \
+    --alert-on "BTCUSDT>51000"
 ```

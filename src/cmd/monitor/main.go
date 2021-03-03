@@ -10,9 +10,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ngalaiko/binance-stream-monitor/backend/alerts"
-	"github.com/ngalaiko/binance-stream-monitor/backend/logger"
-	"github.com/ngalaiko/binance-stream-monitor/backend/trades"
+	"github.com/ngalaiko/binance-stream-monitor/src/alerts"
+	"github.com/ngalaiko/binance-stream-monitor/src/logger"
+	"github.com/ngalaiko/binance-stream-monitor/src/trades"
 )
 
 func main() {

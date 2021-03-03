@@ -3,10 +3,11 @@ package alerts
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/ngalaiko/binance-stream-monitor/backend/trades"
+	"github.com/ngalaiko/binance-stream-monitor/src/trades"
 )
 
 type logger interface {
@@ -81,6 +82,9 @@ func (l *Logger) log(ctx context.Context, symbol string, alerts ...*Alert) error
 		}
 
 		for _, alert := range alerts {
+			if !strings.EqualFold(alert.symbol, trade.Symbol) {
+				continue
+			}
 			if tradePrice > alert.limit {
 				l.logger.Warn("%s price exceeded %f: %f", alert.symbol, alert.limit, tradePrice)
 			}

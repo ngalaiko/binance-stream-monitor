@@ -1,4 +1,4 @@
-module github.com/ngalaiko/binance-stream-monitor/backend
+module github.com/ngalaiko/binance-stream-monitor/src
 
 go 1.16
 
