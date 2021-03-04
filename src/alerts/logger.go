@@ -91,5 +91,5 @@ func (l *Logger) log(ctx context.Context, symbol string, alerts ...*Alert) error
 		}
 	}
 
-	return nil
+	return errGroup.Wait()
 }
