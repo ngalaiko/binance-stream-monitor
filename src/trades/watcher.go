@@ -29,14 +29,126 @@ type Watcher struct {
 
 	idGuard *sync.RWMutex
 	id      uint64
+
+	watchersGuard *sync.RWMutex
+	watchers      map[string][]chan<- *Trade
+
+	watchRequests chan string
 }
 
 // NewWatcher creates a new watcher.
 func NewWatcher(logger logger) *Watcher {
 	return &Watcher{
-		logger:      logger,
-		wsConnGuard: &sync.RWMutex{},
-		idGuard:     &sync.RWMutex{},
+		logger:        logger,
+		wsConnGuard:   &sync.RWMutex{},
+		idGuard:       &sync.RWMutex{},
+		watchers:      map[string][]chan<- *Trade{},
+		watchersGuard: &sync.RWMutex{},
+		watchRequests: make(chan string),
+	}
+}
+
+// Start starts the watcher
+func (s *Watcher) Start(ctx context.Context) error {
+	ws, err := s.conn()
+	if err != nil {
+		return err
+	}
+
+	errors := make(chan error)
+	trades := make(chan *Trade)
+	var msg = make([]byte, buffSize)
+	go func() {
+		for {
+			size, err := ws.Read(msg)
+			if err != nil {
+				errors <- fmt.Errorf("failed to read from ws: %w", err)
+				return
+			}
+
+			var message struct {
+				*Trade
+				ID     uint64      `json:"id"`
+				Result interface{} `json:"result,omitempty"`
+			}
+
+			rawMsg := msg[:size]
+			if err := json.Unmarshal(rawMsg, &message); err != nil {
+				errors <- fmt.Errorf("failed to unmarshal '%s': %s", string(msg), err)
+				return
+			}
+
+			switch {
+			case message.Trade != nil:
+				trades <- message.Trade
+			default:
+				s.logger.Debug("ignoring '%s'", string(rawMsg))
+			}
+		}
+	}()
+
+	for {
+		select {
+		case symbol := <-s.watchRequests:
+			s.logger.Debug("subscribing to %s", symbol)
+			requestID := s.nextRequestID()
+			if _, err := ws.Write([]byte(fmt.Sprintf(`{
+			"method": "SUBSCRIBE",
+			"params":["%s@trade"],
+			"id": %d}`, strings.ToLower(symbol), requestID,
+			))); err != nil {
+				return fmt.Errorf("failed to send subscription request: %w", err)
+			}
+		case <-ctx.Done():
+			return ws.Close()
+		case err := <-errors:
+			_ = ws.Close()
+			return err
+		case trade := <-trades:
+			for _, out := range s.getWatcher(strings.ToLower(trade.Symbol)) {
+				tCopy := *trade
+				out <- &tCopy
+			}
+		}
+	}
+}
+
+func (s *Watcher) registerWatcher(symbol string, out chan<- *Trade) {
+	s.watchRequests <- symbol
+
+	s.watchersGuard.RLock()
+	ww, exists := s.watchers[symbol]
+	s.watchersGuard.RUnlock()
+
+	if !exists {
+		ww = []chan<- *Trade{}
+	}
+
+	ww = append(ww, out)
+
+	s.watchersGuard.Lock()
+	s.watchers[symbol] = ww
+	s.watchersGuard.Unlock()
+}
+
+func (s *Watcher) getWatcher(symbol string) []chan<- *Trade {
+	s.watchersGuard.RLock()
+	ww := s.watchers[symbol]
+	s.watchersGuard.RUnlock()
+
+	return ww
+}
+
+// Watch subscribes to symbol trades, and writes them into the channel.
+func (s *Watcher) Watch(ctx context.Context, symbol string, out chan<- *Trade) error {
+	s.registerWatcher(strings.ToLower(symbol), out)
+
+	s.logger.Debug("new watcher for '%s' created", symbol)
+
+	select {
+	case <-ctx.Done():
+		s.logger.Debug("watcher for '%s' stopped", symbol)
+		return nil
 	}
 }
 
@@ -65,65 +177,4 @@ func (s *Watcher) nextRequestID() uint64 {
 	s.id++
 	s.idGuard.Unlock()
 	return s.id
-}
-
-// Watch returns a new channel with trades for a given symbol.
-func (s *Watcher) Watch(ctx context.Context, symbol string, out chan<- *Trade) error {
-	ws, err := s.conn()
-	if err != nil {
-		return err
-	}
-
-	requestID := s.nextRequestID()
-	if _, err := ws.Write([]byte(fmt.Sprintf(`{
-		"method": "SUBSCRIBE",
-		"params":["%s@trade"],
-		"id": %d}`, strings.ToLower(symbol), requestID,
-	))); err != nil {
-		return fmt.Errorf("failed to send subscription request: %w", err)
-	}
-
-	s.logger.Debug("new watcher for '%s' created", symbol)
-
-	errors := make(chan error)
-	go func() {
-		var msg = make([]byte, buffSize)
-		for {
-			size, err := ws.Read(msg)
-			if err != nil {
-				errors <- fmt.Errorf("failed to read message: %s", err)
-				return
-			}
-
-			var message struct {
-				*Trade
-				ID     uint64      `json:"id"`
-				Result interface{} `json:"result,omitempty"`
-			}
-
-			rawMsg := msg[:size]
-			if err := json.Unmarshal(rawMsg, &message); err != nil {
-				errors <- fmt.Errorf("failed to unmarshal '%s': %s", string(msg), err)
-				return
-			}
-
-			switch {
-			case message.Trade != nil:
-				out <- message.Trade
-			case message.ID == requestID && message.Result == nil:
-				s.logger.Debug("subscried to '%s@trade'", strings.ToLower(symbol))
-			default:
-				s.logger.Debug("'%s' watcher ignoring '%s'", symbol, string(rawMsg))
-			}
-
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		s.logger.Debug("watcher for '%s' stopped", symbol)
-		return nil
-	case err := <-errors:
-		return err
-	}
 }

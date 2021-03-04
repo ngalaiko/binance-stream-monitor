@@ -13,6 +13,7 @@ import (
 	"github.com/ngalaiko/binance-stream-monitor/src/alerts"
 	"github.com/ngalaiko/binance-stream-monitor/src/logger"
 	"github.com/ngalaiko/binance-stream-monitor/src/trades"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -37,10 +38,20 @@ func main() {
 		cancel()
 	}()
 
-	logger := alerts.NewLogger(trades.NewWatcher(log), log)
+	watcher := trades.NewWatcher(log)
+	errGroup, errCtx := errgroup.WithContext(ctx)
+	errGroup.Go(func() error {
+		return watcher.Start(errCtx)
+	})
 
-	if err := logger.Log(ctx, alertListFlag...); err != nil {
-		log.Error("error running the application: %s", err)
+	logger := alerts.NewLogger(watcher, log)
+	errGroup.Go(func() error {
+		return logger.Log(errCtx, alertListFlag...)
+	})
+
+	if err := errGroup.Wait(); err != nil {
+		log.Error("%s", err)
+		return
 	}
 
 	log.Info("stopped")
